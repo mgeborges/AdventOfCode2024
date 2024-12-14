@@ -1,130 +1,137 @@
+import time
 from pathlib import Path
 from typing import Tuple
 
 GUARD_CHAR = "^"
 BLOCK_CHAR = "#"
-NORTH_DIRECTION = "^"
-SOUTH_DIRECTION = "v"
-EAST_DIRECTION = ">"
-WEST_DIRECTION = "<"
-NORTH_TO_EAST = "E"
-EAST_TO_SOUTH = "C"
-SOUTH_TO_WEST = "Z"
-WEST_TO_NORTH = "Q"
 
 
-def is_heading_north(guard_direction):
-    return True if guard_direction in (GUARD_CHAR, NORTH_DIRECTION) else False
+class Map:
+    def __init__(self):
+        self.blocks = []
+        self.size = None
+        self.map = self.load_map()
+        self.blocks, self.starting_pos = self.find_landmarks()
+        self.size = (len(self.map), len(self.map[0]))
+        self.obstacle_pos = None
+
+    def load_map(self):
+        with open(Path(__file__).parent / "input.txt", "r") as f:
+            return [line.strip() for line in f.readlines()]
+
+    def find_landmarks(self):
+        blocks = []
+        starting_pos = None
+        for line_number, line in enumerate(self.map):
+            line_index = line.find(BLOCK_CHAR)
+            while line_index != -1:
+                blocks.append((line_number, line_index))
+                line_index = line.find(BLOCK_CHAR, line_index + 1)
+            line_index = line.find(GUARD_CHAR)
+            if line_index != -1:
+                starting_pos = (line_number, line_index)
+        return blocks, starting_pos
+
+    def get_barriers(self):
+        return self.blocks + [self.obstacle_pos]
+
+    def find_starting_pos(self):
+        for i, row in enumerate(self.map):
+            if GUARD_CHAR in row:
+                pos = (i, row.index(GUARD_CHAR))
+        return pos
 
 
-def is_heading_south(guard_direction):
-    return True if guard_direction == SOUTH_DIRECTION else False
-
-
-def is_heading_east(guard_direction):
-    return True if guard_direction == EAST_DIRECTION else False
-
-
-def is_heading_west(guard_direction):
-    return True if guard_direction == WEST_DIRECTION else False
-
-
-def read_input():
-    with open(Path(__file__).parent / "input.txt", "r") as f:
-        map = [list(line.strip()) for line in f.readlines()]
-    return map
-
-
-def find_starting_pos(mapped_area) -> Tuple[int, int]:
-    for i in range(len(mapped_area)):
-        row = mapped_area[i]
-        if GUARD_CHAR in row:
-            pos = (i, row.index(GUARD_CHAR))
-    return pos
-
-
-def move_north(guard_pos, mapped_area):
-    new_guard_pos = None
-    for i in range(guard_pos[0], 0, -1):
-        if mapped_area[i - 1][guard_pos[1]] != BLOCK_CHAR:
-            mapped_area[i][guard_pos[1]] = NORTH_DIRECTION
+class Guard:
+    def __init__(self, area_map, start_pos=None, start_direction=None):
+        self.area_map = area_map
+        if start_pos:
+            self.start_pos = start_pos
         else:
-            new_guard_pos = i, guard_pos[1]
-            mapped_area[new_guard_pos[0]][new_guard_pos[1]] = EAST_DIRECTION
-            break
-    else:
-        mapped_area[0][guard_pos[1]] = NORTH_DIRECTION
-    return new_guard_pos
+            self.start_pos: Tuple = self.area_map.find_starting_pos()
+        self.direction = start_direction if start_direction else (-1, 0)
+        self.reset()
 
+    def change_direction(self):
+        if self.direction == (-1, 0):
+            self.direction = (0, 1)
+        elif self.direction == (0, 1):
+            self.direction = (1, 0)
+        elif self.direction == (1, 0):
+            self.direction = (0, -1)
+        elif self.direction == (0, -1):
+            self.direction = (-1, 0)
 
-def move_south(guard_pos, mapped_area):
-    new_guard_pos = None
-    for i in range(guard_pos[0], len(mapped_area) - 1):
-        if mapped_area[i + 1][guard_pos[1]] != BLOCK_CHAR:
-            mapped_area[i][guard_pos[1]] = SOUTH_DIRECTION
-        else:
-            new_guard_pos = i, guard_pos[1]
-            mapped_area[new_guard_pos[0]][new_guard_pos[1]] = WEST_DIRECTION
-            break
-    else:
-        mapped_area[len(mapped_area) - 1][guard_pos[1]] = SOUTH_DIRECTION
-    return new_guard_pos
+    def get_next_pos(self):
+        return (self.pos[0] + self.direction[0], self.pos[1] + self.direction[1])
 
+    def is_position_blocked(self, pos):
+        if pos in self.area_map.get_barriers():
+            return True
+        return False
 
-def move_east(guard_pos, mapped_area):
-    new_guard_pos = None
-    for i in range(guard_pos[1], len(mapped_area[0]) - 1):
-        if mapped_area[guard_pos[0]][i + 1] != BLOCK_CHAR:
-            mapped_area[guard_pos[0]][i] = EAST_DIRECTION
-        else:
-            new_guard_pos = guard_pos[0], i
-            mapped_area[new_guard_pos[0]][new_guard_pos[1]] = SOUTH_DIRECTION
-            break
-    else:
-        mapped_area[guard_pos[0]][len(mapped_area) - 1] = EAST_DIRECTION
-    return new_guard_pos
+    def is_position_edge(self, pos):
+        if 0 <= pos[0] < self.area_map.size[0] and 0 <= pos[1] < self.area_map.size[1]:
+            return False
+        return True
 
+    def is_loop_detected(self):
+        # if the guard walks the same position and direction twice, he's in a loop
+        return True if (self.pos, self.direction) in self.visited_locations else False
 
-def move_west(guard_pos, mapped_area):
-    new_guard_pos = None
-    for i in range(guard_pos[1], 0, -1):
-        if mapped_area[guard_pos[0]][i - 1] != BLOCK_CHAR:
-            mapped_area[guard_pos[0]][i] = WEST_DIRECTION
-        else:
-            new_guard_pos = guard_pos[0], i
-            mapped_area[new_guard_pos[0]][new_guard_pos[1]] = NORTH_DIRECTION
-            break
-    else:
-        mapped_area[guard_pos[0]][0] = WEST_DIRECTION
-    return new_guard_pos
+    def move_next(self):
+        self.visited_locations.append((self.pos, self.direction))
+        next_pos = self.get_next_pos()
+        while self.is_position_blocked(next_pos):
+            self.change_direction()
+            self.visited_locations.append((self.pos, self.direction))
+            next_pos = self.get_next_pos()
+        # print(f"Guard at location {self.pos}. Moving to {next_pos}")
+        self.pos = next_pos
+        self.steps += 1
+        return self.pos
 
+    def patrol(self):
+        pos = self.move_next()
+        while not self.is_position_edge(pos) and not self.is_loop_detected():
+            pos = self.move_next()
 
-def move_to_next_block(guard_pos, mapped_area):
-    guard_direction = mapped_area[guard_pos[0]][guard_pos[1]]
-    new_guard_pos = None
-    if is_heading_north(guard_direction):
-        new_guard_pos = move_north(guard_pos, mapped_area)
-    elif is_heading_south(guard_direction):
-        new_guard_pos = move_south(guard_pos, mapped_area)
-    elif is_heading_east(guard_direction):
-        new_guard_pos = move_east(guard_pos, mapped_area)
-    elif is_heading_west(guard_direction):
-        new_guard_pos = move_west(guard_pos, mapped_area)
-    return new_guard_pos
+    def reset(self):
+        self.visited_locations = []
+        self.pos = self.start_pos
+        self.steps = 0
+        self.loop_detected = False
+        self.direction = (-1, 0)
 
-
-def walk_the_route(mapped_area):
-    guard_pos = find_starting_pos(mapped_area)
-    while guard_pos is not None:
-        guard_pos = move_to_next_block(guard_pos, mapped_area)
+    def set_pos_and_direction(self, pos, direction):
+        self.pos = pos
+        self.direction = direction
 
 
 def main():
-    mapped_area = read_input()
-    walk_the_route(mapped_area)
-    with open(Path(__file__).parent / "final_mapped_area_2.txt", "w") as f:
-        for row in mapped_area:
-            f.write("".join(row) + "\n")
+    # start_time = time.time()
+    area_map = Map()
+    guard = Guard(area_map)
+    # Complete a first run to discover the path the guard completed
+    guard.patrol()
+    successful_obstacles = 0
+
+    # All locations except the starting position should be tested
+    obstacle_locations = []
+    for location in guard.visited_locations:
+        if location[0] not in obstacle_locations and location[0] != guard.start_pos:
+            obstacle_locations.append(location[0])
+    start_time = time.time()
+    for location in obstacle_locations:
+        # print("######### Starting a new map ############")
+        area_map.obstacle_pos = location
+        guard.reset()
+        guard.patrol()
+        if guard.is_loop_detected():
+            # print("Loop detected!!!")
+            successful_obstacles += 1
+    print(f"Successfully placed an obstacle at {successful_obstacles} different locations")
+    print("--- %s seconds ---" % (time.time() - start_time))
 
 
 if __name__ == "__main__":
