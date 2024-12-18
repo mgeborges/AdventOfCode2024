@@ -8,7 +8,6 @@ BLOCK_CHAR = "#"
 
 class Map:
     def __init__(self):
-        self.blocks = []
         self.size = None
         self.map = self.load_map()
         self.blocks, self.starting_pos = self.find_landmarks()
@@ -20,20 +19,17 @@ class Map:
             return [line.strip() for line in f.readlines()]
 
     def find_landmarks(self):
-        blocks = []
+        blocks = set()
         starting_pos = None
         for line_number, line in enumerate(self.map):
             line_index = line.find(BLOCK_CHAR)
             while line_index != -1:
-                blocks.append((line_number, line_index))
+                blocks.add((line_number, line_index))
                 line_index = line.find(BLOCK_CHAR, line_index + 1)
             line_index = line.find(GUARD_CHAR)
             if line_index != -1:
                 starting_pos = (line_number, line_index)
         return blocks, starting_pos
-
-    def get_barriers(self):
-        return self.blocks + [self.obstacle_pos]
 
     def find_starting_pos(self):
         for i, row in enumerate(self.map):
@@ -66,7 +62,7 @@ class Guard:
         return (self.pos[0] + self.direction[0], self.pos[1] + self.direction[1])
 
     def is_position_blocked(self, pos):
-        if pos in self.area_map.get_barriers():
+        if pos in self.area_map.blocks or pos == self.area_map.obstacle_pos:
             return True
         return False
 
@@ -80,13 +76,12 @@ class Guard:
         return True if (self.pos, self.direction) in self.visited_locations else False
 
     def move_next(self):
-        self.visited_locations.append((self.pos, self.direction))
+        self.visited_locations.add((self.pos, self.direction))
         next_pos = self.get_next_pos()
         while self.is_position_blocked(next_pos):
             self.change_direction()
-            self.visited_locations.append((self.pos, self.direction))
+            self.visited_locations.add((self.pos, self.direction))
             next_pos = self.get_next_pos()
-        # print(f"Guard at location {self.pos}. Moving to {next_pos}")
         self.pos = next_pos
         self.steps += 1
         return self.pos
@@ -97,7 +92,7 @@ class Guard:
             pos = self.move_next()
 
     def reset(self):
-        self.visited_locations = []
+        self.visited_locations = set()
         self.pos = self.start_pos
         self.steps = 0
         self.loop_detected = False
@@ -109,26 +104,22 @@ class Guard:
 
 
 def main():
-    # start_time = time.time()
+    start_time = time.time()
     area_map = Map()
     guard = Guard(area_map)
     # Complete a first run to discover the path the guard completed
     guard.patrol()
     successful_obstacles = 0
-
     # All locations except the starting position should be tested
     obstacle_locations = []
     for location in guard.visited_locations:
         if location[0] not in obstacle_locations and location[0] != guard.start_pos:
             obstacle_locations.append(location[0])
-    start_time = time.time()
     for location in obstacle_locations:
-        # print("######### Starting a new map ############")
         area_map.obstacle_pos = location
         guard.reset()
         guard.patrol()
         if guard.is_loop_detected():
-            # print("Loop detected!!!")
             successful_obstacles += 1
     print(f"Successfully placed an obstacle at {successful_obstacles} different locations")
     print("--- %s seconds ---" % (time.time() - start_time))
